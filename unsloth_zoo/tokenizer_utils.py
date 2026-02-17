@@ -100,6 +100,7 @@ def add_new_tokens(
     # Get mean of trained tokens
     # mean_embedding, mean_lm_head = fix_untrained_tokens(model)
 
+    model.resize_token_embeddings(len(tokenizer))
     # Weirdly be careful reserved tokens can pop out
     mean_embedding, mean_lm_head = mean_of_trained_tokens(model)
     mean_embedding = mean_embedding.to(torch.float32)
