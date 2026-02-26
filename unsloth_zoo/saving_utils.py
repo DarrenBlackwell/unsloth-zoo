@@ -761,6 +761,7 @@ def _merge_and_overwrite_lora(
                         count += 1
 
                 # FIXED: Direct tensor writing using torch
+                print(f"[Unsloth] _merge_and_overwrite_lora: writing key='{output_key}' shape={tuple(W.shape)} dtype={W.dtype} original_dtype={W_original_dtype}")
                 success = _write_tensor_direct_torch(mm, header_metadata, length_of_header, output_key, W, W_original_dtype)
 
                 if not success:
@@ -801,6 +802,7 @@ def _merge_and_overwrite_lora(
         return count, safetensor_keys_seen
 
     except Exception as e:
+        print(f"[Unsloth] _merge_and_overwrite_lora: caught exception in file '{filename}': {e}")
         raise RuntimeError(f"Model merge failed with error: {e}")
 
     finally:
@@ -2113,6 +2115,7 @@ def merge_and_overwrite_lora(
         file_path = os.path.join(save_directory, filename)
 
         if not os.path.exists(file_path):
+            print(f"[Unsloth] resize_cached_embed: skipping {filename} (file not found)")
             return
 
         with safe_open(file_path, framework="pt", device="cpu") as f:
@@ -2120,17 +2123,24 @@ def merge_and_overwrite_lora(
 
         embed_key = next((k for k in all_tensors if k.endswith("embed_tokens.weight")), None)
         if embed_key is None:
+            print(f"[Unsloth] resize_cached_embed: no embed_tokens.weight found in {filename}, skipping resize")
             return
 
         old = all_tensors[embed_key]
+        print(f"[Unsloth] resize_cached_embed: found {embed_key} in {filename}, shape={tuple(old.shape)}, target_vocab_size={embedding_size}")
+
         if old.shape[0] >= embedding_size:
+            print(f"[Unsloth] resize_cached_embed: embed already large enough ({old.shape[0]} >= {embedding_size}), skipping resize")
             return
 
+        print(f"[Unsloth] resize_cached_embed: resizing {embed_key} from {old.shape[0]} -> {embedding_size} rows (dtype={old.dtype})")
         new = torch.zeros(embedding_size, old.shape[1], dtype=old.dtype)
         new[:old.shape[0]] = old
         all_tensors[embed_key] = new
 
+        print(f"[Unsloth] resize_cached_embed: saving resized file {file_path}")
         save_file(all_tensors, file_path, metadata={"format": "pt"})
+        print(f"[Unsloth] resize_cached_embed: done, embed_needs_resizing set to False")
         embed_needs_resizing = False
 
     # Step 5: Iterate through original shards, merge LoRA, and overwrite/save
@@ -3469,6 +3479,9 @@ def _write_tensor_direct_torch(mm, header_metadata, length_of_header, output_key
         tensor_bytes = tensor_formatted.untyped_storage().nbytes()
 
         if tensor_bytes != expected_size:
+            print(f"[Unsloth] _write_tensor_direct_torch: size mismatch for '{output_key}': "
+                  f"expected {expected_size} bytes, got {tensor_bytes} bytes "
+                  f"(tensor shape={tuple(tensor_formatted.shape)}, dtype={tensor_formatted.dtype})")
             if UNSLOTH_ENABLE_LOGGING:
                 logger.warning(f"Size mismatch for {output_key}: expected {expected_size}, got {tensor_bytes}")
             return False
@@ -3494,6 +3507,7 @@ def _write_tensor_direct_torch(mm, header_metadata, length_of_header, output_key
         return True
 
     except Exception as e:
+        print(f"[Unsloth] _write_tensor_direct_torch: exception writing '{output_key}': {e}")
         if UNSLOTH_ENABLE_LOGGING:
             logger.info(f"Direct tensor write failed for {output_key}: {e}")
         return False
