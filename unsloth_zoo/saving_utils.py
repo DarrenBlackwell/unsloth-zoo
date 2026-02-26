@@ -2106,6 +2106,7 @@ def merge_and_overwrite_lora(
 
     final_safetensors_list = []
     embed_needs_resizing = True
+    lm_head_needs_resizing = True
 
     def resize_cached_embed(filename, save_directory, embedding_size):
         nonlocal embed_needs_resizing
@@ -2139,6 +2140,38 @@ def merge_and_overwrite_lora(
         save_file(all_tensors, file_path, metadata={"format": "pt"})
         embed_needs_resizing = False
 
+    def resize_cached_lm_head(filename, save_directory, embedding_size):
+        nonlocal lm_head_needs_resizing
+
+        file_path = os.path.join(save_directory, filename)
+
+        if not os.path.exists(file_path):
+            return
+
+        with safe_open(file_path, framework="pt", device="cpu") as f:
+            all_tensors = {key: f.get_tensor(key) for key in f.keys()}
+
+        lm_head_key = next((k for k in all_tensors if k.endswith("lm_head.weight")), None)
+        if lm_head_key is None:
+            return
+
+        old = all_tensors[lm_head_key]
+
+        if old.shape[0] == embedding_size:
+            return
+
+        if old.shape[0] > embedding_size:
+            print(f"[Unsloth] Truncating {lm_head_key} from {old.shape[0]} -> {embedding_size} vocab rows in {filename}")
+            new = old[:embedding_size].clone()
+        else:
+            print(f"[Unsloth] Expanding {lm_head_key} from {old.shape[0]} -> {embedding_size} vocab rows in {filename}")
+            new = torch.zeros(embedding_size, old.shape[1], dtype=old.dtype)
+            new[:old.shape[0]] = old
+        all_tensors[lm_head_key] = new
+
+        save_file(all_tensors, file_path, metadata={"format": "pt"})
+        lm_head_needs_resizing = False
+
     # Step 5: Iterate through original shards, merge LoRA, and overwrite/save
     for filename in ProgressBar(safetensors_list, desc = "Unsloth: Preparing safetensor model files"):
         file_path = os.path.join(save_directory, filename)
@@ -2164,6 +2197,9 @@ def merge_and_overwrite_lora(
 
         if embed_needs_resizing:
             resize_cached_embed(filename, save_directory, model.get_input_embeddings().num_embeddings)
+
+        if lm_head_needs_resizing:
+            resize_cached_lm_head(filename, save_directory, model.get_input_embeddings().num_embeddings)
 
         if needs_splitting:
             resulting_files = split_safetensor_file(filename, save_directory, max_shard_size_gb=1.5)
