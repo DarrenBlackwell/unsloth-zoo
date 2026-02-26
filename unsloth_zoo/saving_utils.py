@@ -262,7 +262,7 @@ class LoraStats:
 pass
 
 
-def assert_same_keys(model, new_state_dict):
+def assert_same_keys(model, new_state_dict, remove_keys):
     """
     Normalize keys so MoE helper wrappers (base_layer, modules_to_save, original_module)
     and LoRA suffixes don't trigger false mismatches. Compare only weight/bias tensors.
@@ -273,7 +273,8 @@ def assert_same_keys(model, new_state_dict):
         # Ignore helper wrappers and raw LoRA adapter tensors; the merged
         # state_dict intentionally omits lora_A / lora_B weights.
         return (
-            "modules_to_save" in key
+            key in remove_keys 
+            or "modules_to_save" in key
             or "original_module" in key
             or ".lora_A" in key
             or ".lora_B" in key
@@ -286,8 +287,8 @@ def assert_same_keys(model, new_state_dict):
             return ""
         # strip helper wrappers
         key = key.replace(".base_layer", "")
-        key = key.replace(".modules_to_save.default", "")
-        key = key.replace(".original_module", "")
+        #key = key.replace(".modules_to_save.default", "")
+        #key = key.replace(".original_module", "")
         # consolidate lora default suffix
         key = key.replace(".lora_A.default", ".lora_A")
         key = key.replace(".lora_B.default", ".lora_B")
@@ -474,7 +475,7 @@ def create_lora_statistics(model, merge_into_original = False, return_state_dict
         state_dict = None
     pass
 
-    if return_state_dict: assert_same_keys(model, state_dict)
+    if return_state_dict: assert_same_keys(model, state_dict, remove_keys)
     return lora_weights, state_dict
 pass
 
