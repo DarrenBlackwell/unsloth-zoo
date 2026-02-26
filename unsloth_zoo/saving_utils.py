@@ -2129,13 +2129,17 @@ def merge_and_overwrite_lora(
         old = all_tensors[embed_key]
         print(f"[Unsloth] resize_cached_embed: found {embed_key} in {filename}, shape={tuple(old.shape)}, target_vocab_size={embedding_size}")
 
-        if old.shape[0] >= embedding_size:
-            print(f"[Unsloth] resize_cached_embed: embed already large enough ({old.shape[0]} >= {embedding_size}), skipping resize")
+        if old.shape[0] == embedding_size:
+            print(f"[Unsloth] resize_cached_embed: embed already correct size ({old.shape[0]} == {embedding_size}), skipping resize")
             return
 
-        print(f"[Unsloth] resize_cached_embed: resizing {embed_key} from {old.shape[0]} -> {embedding_size} rows (dtype={old.dtype})")
-        new = torch.zeros(embedding_size, old.shape[1], dtype=old.dtype)
-        new[:old.shape[0]] = old
+        if old.shape[0] > embedding_size:
+            print(f"[Unsloth] resize_cached_embed: truncating {embed_key} from {old.shape[0]} -> {embedding_size} rows (dtype={old.dtype})")
+            new = old[:embedding_size].clone()
+        else:
+            print(f"[Unsloth] resize_cached_embed: expanding {embed_key} from {old.shape[0]} -> {embedding_size} rows (dtype={old.dtype})")
+            new = torch.zeros(embedding_size, old.shape[1], dtype=old.dtype)
+            new[:old.shape[0]] = old
         all_tensors[embed_key] = new
 
         print(f"[Unsloth] resize_cached_embed: saving resized file {file_path}")
