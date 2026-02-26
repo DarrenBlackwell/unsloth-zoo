@@ -2104,6 +2104,33 @@ def merge_and_overwrite_lora(
         )
 
     final_safetensors_list = []
+    embed_needs_resizing = True
+
+    def resize_cached_embed(filename, save_directory, embedding_size):
+        nonlocal embed_needs_resizing
+
+        file_path = os.path.join(save_directory, filename)
+
+        if not os.path.exists(file_path):
+            return
+
+        with safe_open(file_path, framework="pt", device="cpu") as f:
+            all_tensors = {key: f.get_tensor(key) for key in f.keys()}
+
+        embed_key = next((k for k in all_tensors if k.endswith("embed_tokens.weight")), None)
+        if embed_key is None:
+            return
+
+        old = all_tensors[embed_key]
+        if old.shape[0] >= embedding_size:
+            return
+
+        new = torch.zeros(embedding_size, old.shape[1], dtype=old.dtype)
+        new[:old.shape[0]] = old
+        all_tensors[embed_key] = new
+
+        save_file(all_tensors, file_path, metadata={"format": "pt"})
+        embed_needs_resizing = False
 
     # Step 5: Iterate through original shards, merge LoRA, and overwrite/save
     for filename in ProgressBar(safetensors_list, desc = "Unsloth: Preparing safetensor model files"):
@@ -2127,6 +2154,9 @@ def merge_and_overwrite_lora(
                 token = token,
             )
         pass
+
+        if embed_needs_resizing:
+            resize_cached_embed(filename, save_directory, model.get_input_embeddings().num_embeddings)
 
         if needs_splitting:
             resulting_files = split_safetensor_file(filename, save_directory, max_shard_size_gb=1.5)
@@ -2159,6 +2189,7 @@ def merge_and_overwrite_lora(
 
     is_final_safetensors_list_sharded = is_hf_sharded_safetensors(final_safetensors_list)
     regenerate_index = ((base_model_is_quantized and quant_type == "mxfp4") or needs_splitting) and (len(final_safetensors_list) > 1 or is_final_safetensors_list_sharded) and save_method != "mxfp4"
+    regenerate_index = True
     weight_map = {}
 
     # Collect all tensor keys encountered across shards so we can reason about tied embeddings
